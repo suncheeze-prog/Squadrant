@@ -1,0 +1,405 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import CoordGrid from '../components/CoordGrid';
+import GameIcon, { shipIcon } from '../components/GameIcon';
+import { useApp } from '../context/AppContext';
+import { useOrientation } from '../hooks/useOrientation';
+import { SHIPS, createEmptyGrid, placeShipOnGrid, getGridConfig } from '../utils/gameLogic';
+
+const TIME_LIMIT = 90; // 1 minute 30 seconds per spec
+
+export default function ShipPlacementScreen({ playerLabel = 'PLAYER 1', difficulty, onDone, onBack }) {
+  const { play, startBg, stopBg } = useApp();
+  const { isPortrait } = useOrientation();
+
+  // Per-difficulty grid (Easy/Advanced = 10x10, Average = 15x15)
+  const gridConfig = useRef(getGridConfig(difficulty)).current;
+
+  const [grid, setGrid]            = useState(() => createEmptyGrid(gridConfig));
+  const [placedShips, setPlaced]   = useState([]);
+  const [shipHistory, setHistory]  = useState([]);
+  const [selectedShip, setSelected]= useState(SHIPS[0]);
+  const [orientation, setOrient]   = useState('h'); // 'h' | 'v' | 'd'
+  const [message, setMessage]      = useState(null);
+  const [timeLeft, setTimeLeft]    = useState(TIME_LIMIT);
+  const [gridPx, setGridPx]        = useState(260);
+  const gridWrap  = useRef(null);
+  const timerRef  = useRef(null);
+  const msgTimer  = useRef(null);
+
+  // Grid sizing — subtract circle row only in landscape where circles sit below grid
+  useEffect(() => {
+    const measure = () => {
+      if (!gridWrap.current) return;
+      const { width, height } = gridWrap.current.getBoundingClientRect();
+      if (isPortrait) {
+        setGridPx(Math.floor(Math.min(width, height) * 0.96));
+      } else {
+        // landscape: reserve ~90px at bottom for ship circles
+        setGridPx(Math.floor(Math.min(width, height - 90) * 0.97));
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (gridWrap.current) ro.observe(gridWrap.current);
+    return () => ro.disconnect();
+  }, [isPortrait]);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) { clearInterval(timerRef.current); handleAutoPlace(); return 0; }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, []); // eslint-disable-line
+
+  useEffect(() => { startBg(); return () => stopBg(); }, []); // eslint-disable-line
+
+  const showMsg = (text, ok = true) => {
+    clearTimeout(msgTimer.current);
+    setMessage({ text, ok });
+    msgTimer.current = setTimeout(() => setMessage(null), 2000);
+  };
+
+  const handlePlace = useCallback((x, y) => {
+    if (!selectedShip) return;
+    const result = placeShipOnGrid(grid, selectedShip, x, y, orientation);
+    if (!result) { play('miss'); showMsg(`⚠ Cannot place ${selectedShip.name} here`, false); return; }
+    play('deploy');
+    const newPlaced = [...placedShips, selectedShip];
+    setHistory(h => [...h, { ship: selectedShip, grid, placed: placedShips }]);
+    setGrid(result);
+    setPlaced(newPlaced);
+    showMsg(`✓ ${selectedShip.name} deployed!`, true);
+    const remaining = SHIPS.filter(s => !newPlaced.find(p => p.id === s.id));
+    setSelected(remaining[0] || null);
+  }, [grid, selectedShip, orientation, placedShips, play]);
+
+  const handleUndo = () => {
+    if (shipHistory.length === 0) return;
+    play('click');
+    const prev = shipHistory[shipHistory.length - 1];
+    setHistory(h => h.slice(0, -1));
+    setGrid(prev.grid);
+    setPlaced(prev.placed);
+    setSelected(prev.ship);
+    showMsg('↩ Placement undone', true);
+  };
+
+  const handleAutoPlace = useCallback(() => {
+    play('deploy');
+    let g = createEmptyGrid(gridConfig);
+    const placed = [];
+    const orients = ['h', 'v', 'd'];
+    for (const ship of SHIPS) {
+      let ok = false, tries = 0;
+      while (!ok && tries < 1500) {
+        const x = Math.floor(Math.random() * gridConfig.size) + gridConfig.min;
+        const y = Math.floor(Math.random() * gridConfig.size) + gridConfig.min;
+        const o = orients[Math.floor(Math.random() * orients.length)];
+        const res = placeShipOnGrid(g, ship, x, y, o);
+        if (res) { g = res; placed.push(ship); ok = true; }
+        tries++;
+      }
+    }
+    setGrid(g); setPlaced(placed); setSelected(null); setHistory([]);
+    showMsg('⚡ Fleet auto-deployed!', true);
+  }, [play, gridConfig]);
+
+  const handleDeploy = () => {
+    play('select');
+    clearInterval(timerRef.current);
+    onDone(grid);
+  };
+
+  const allPlaced = placedShips.length >= SHIPS.length;
+  const pct       = (timeLeft / TIME_LIMIT) * 100;
+  const timeColor = timeLeft < 20 ? 'var(--red-bright)' : timeLeft < 45 ? 'var(--amber)' : 'var(--green-bright)';
+
+  const SHIP_ICONS = {
+    1:{ emoji:'✈️',  alt:'Carrier',      png:'/assets/icons/carrier.png'    },
+    2:{ emoji:'🪖',  alt:'Battleship A', png:'/assets/icons/battleship.png' },
+    3:{ emoji:'🪖',  alt:'Battleship B', png:'/assets/icons/battleship.png' },
+    4:{ emoji:'🚁',  alt:'Cruiser',      png:'/assets/icons/cruiser.png'    },
+    5:{ emoji:'🚤',  alt:'Patrol A',     png:'/assets/icons/submarine.png'  },
+    6:{ emoji:'🚤',  alt:'Patrol B',     png:'/assets/icons/destroyer.png'  },
+  };
+
+  const ShipCircleIcon = ({ ship }) => {
+    const icon = SHIP_ICONS[ship.id] || { emoji:'💣', alt:ship.name, png:'/assets/icons/ship.png' };
+    if (icon.png) {
+      return (
+        <img src={icon.png} alt={icon.alt}
+          style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', padding:'5px' }}
+          onError={e => {
+            e.target.style.display = 'none';
+            const span = document.createElement('span');
+            span.textContent = icon.emoji;
+            span.style.cssText = 'font-size:22px;line-height:1;display:block;user-select:none';
+            e.target.parentNode.appendChild(span);
+          }}/>
+      );
+    }
+    return <span role="img" aria-label={icon.alt} style={{ fontSize:22, lineHeight:1, display:'block', userSelect:'none' }}>{icon.emoji}</span>;
+  };
+
+  /** Ship circle button — reused in both layouts */
+  const ShipCircle = ({ ship, size = 50 }) => {
+    const placed = !!placedShips.find(p => p.id === ship.id);
+    const sel    = selectedShip?.id === ship.id;
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, cursor:placed?'default':'pointer' }}
+        onClick={() => { if (!placed) { play('click'); setSelected(ship); } }}>
+        <div style={{
+          width:size, height:size,
+          borderRadius:'50%',
+          border:`2px solid ${placed?'rgba(90,173,94,0.2)':sel?'var(--green-bright)':'rgba(90,173,94,0.4)'}`,
+          background: placed?'rgba(40,80,42,0.18)':sel?'rgba(90,173,94,0.2)':'rgba(90,173,94,0.05)',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          overflow:'hidden', transition:'all 0.18s',
+          boxShadow: sel?'0 0 14px rgba(90,173,94,0.4), 0 0 0 3px rgba(90,173,94,0.15)':'none',
+          flexShrink:0,
+        }}>
+          {placed
+            ? <span role="img" aria-label="placed" style={{ fontSize:size*0.44, lineHeight:1 }}>✅</span>
+            : <ShipCircleIcon ship={ship}/>
+          }
+        </div>
+        <div style={{
+          fontSize:'clamp(0.36rem,1.1vw,0.48rem)', color:sel?'var(--green-bright)':placed?'rgba(90,173,94,0.4)':'rgba(90,173,94,0.5)',
+          fontFamily:'Share Tech Mono', textAlign:'center', lineHeight:1.3,
+          letterSpacing:'0.02em', maxWidth:size+4, wordBreak:'break-word',
+        }}>
+          {ship.name.length>7?ship.name.slice(0,7):ship.name}<br/>{ship.size}u
+        </div>
+      </div>
+    );
+  };
+
+  /** Toast overlay — same in both */
+  const Toast = () => message ? (
+    <div style={{
+      position:'absolute', bottom:'clamp(0.4rem,2vw,0.8rem)', left:'50%', transform:'translateX(-50%)',
+      padding:'0.35rem 0.9rem',
+      background: message.ok?'rgba(40,100,42,0.92)':'rgba(192,57,43,0.92)',
+      border:`1px solid ${message.ok?'rgba(90,173,94,0.5)':'rgba(192,57,43,0.5)'}`,
+      fontSize:'clamp(0.6rem,2.2vw,0.75rem)', fontFamily:'Share Tech Mono',
+      color:'var(--white-cream)', whiteSpace:'nowrap',
+      pointerEvents:'none', animation:'slideUp 0.25s ease',
+      backdropFilter:'blur(4px)', zIndex:10,
+    }}>
+      {message.text}
+    </div>
+  ) : null;
+
+  // ═══════════════════════════════════════════════════
+  // PORTRAIT LAYOUT
+  // ═══════════════════════════════════════════════════
+  if (isPortrait) {
+    return (
+      <div className="screen" style={{ background:'var(--bg-void)', flexDirection:'column', overflow:'hidden' }}>
+
+        {/* ── HEADER ── */}
+        <div style={{
+          background:'var(--bg-panel)', borderBottom:'var(--border-panel)',
+          display:'flex', alignItems:'center', flexWrap:'nowrap',
+          padding:`max(clamp(0.4rem,2vw,0.6rem), var(--safe-top)) clamp(0.6rem,3vw,1rem) clamp(0.4rem,2vw,0.6rem)`,
+          gap:'0.5rem', flexShrink:0, overflow:'hidden',
+          minHeight:'clamp(50px,8vh,62px)',
+        }}>
+          <button className="back-btn" onClick={()=>{play('click');onBack();}} style={{width:36,height:36,flexShrink:0}}>
+            <GameIcon id="back" size={15}/>
+          </button>
+          <div style={{overflow:'hidden',flex:1,minWidth:0}}>
+            <div className="label-xs" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',opacity:0.6}}>{playerLabel}</div>
+            <div className="title-font" style={{fontSize:'clamp(0.75rem,3.5vw,1rem)',color:'var(--white-cream)',whiteSpace:'nowrap'}}>DEPLOYMENT</div>
+          </div>
+
+          {/* Timer */}
+          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
+            <div className="title-font" style={{fontSize:'clamp(0.9rem,4vw,1.15rem)',color:timeColor,fontFamily:'Share Tech Mono',lineHeight:1}}>
+              {String(Math.floor(timeLeft/60)).padStart(2,'0')}:{String(timeLeft%60).padStart(2,'0')}
+            </div>
+            <div style={{width:52,height:3,background:'rgba(90,173,94,0.12)',borderRadius:2}}>
+              <div style={{height:'100%',width:`${pct}%`,background:timeColor,borderRadius:2,transition:'width 1s linear,background 0.5s'}}/>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <button className="btn" onClick={handleAutoPlace}
+            style={{fontSize:'clamp(0.58rem,2.5vw,0.72rem)',padding:'0.35rem 0.5rem',minHeight:36,flexShrink:0}}>
+            <GameIcon id="lightning" size={12}/> AUTO
+          </button>
+          <button className="btn" onClick={handleUndo} disabled={shipHistory.length===0}
+            style={{fontSize:'clamp(0.58rem,2.5vw,0.72rem)',padding:'0.35rem 0.5rem',minHeight:36,opacity:shipHistory.length?1:0.3,flexShrink:0}}>
+            <GameIcon id="undo" size={12}/> UNDO
+          </button>
+        </div>
+
+        {/* ── GRID AREA ── */}
+        <div ref={gridWrap} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'clamp(0.2rem,1vw,0.5rem)',overflow:'hidden',position:'relative'}}>
+          <div className="label-xs" style={{textAlign:'center',marginBottom:'0.2rem',flexShrink:0}}>
+            {allPlaced?'✓ FLEET DEPLOYED — READY TO BATTLE':'DEPLOYMENT GRID — TAP TO PLACE'}
+          </div>
+          {gridPx>0 && (
+            <CoordGrid grid={grid} showShips interactive={!allPlaced&&!!selectedShip}
+              placementMode={!allPlaced} pendingShip={selectedShip} pendingOrient={orientation}
+              onPlaceShip={handlePlace} size={gridPx}/>
+          )}
+          <Toast/>
+        </div>
+
+        {/* ── BOTTOM SHIP STRIP ── */}
+        <div style={{
+          background:'var(--bg-panel)', borderTop:'var(--border-panel)',
+          flexShrink:0, padding:'clamp(0.4rem,2vw,0.65rem)',
+          paddingBottom:'max(clamp(0.4rem,2vw,0.65rem), var(--safe-bottom))',
+          display:'flex', flexDirection:'column', gap:'0.4rem',
+        }}>
+
+          {/* Ship circles row */}
+          <div style={{display:'flex',justifyContent:'space-around',alignItems:'flex-start',gap:'clamp(0.3rem,1.5vw,0.7rem)'}}>
+            {SHIPS.map(ship => <ShipCircle key={ship.id} ship={ship} size={48}/>)}
+          </div>
+
+          {/* Orientation toggle + count + deploy */}
+          <div style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
+            {!allPlaced && (
+              <>
+                <div className="label-xs" style={{flexShrink:0}}>▸ ORIENT:</div>
+                {[{o:'h',l:'↔'},{o:'v',l:'↕'},{o:'d',l:'↘'}].map(({o,l})=>(
+                  <button key={o} className="btn" onClick={()=>{play('click');setOrient(o);}}
+                    style={{padding:'0.32rem 0.55rem',minHeight:36,fontSize:'clamp(0.7rem,3vw,0.9rem)',fontWeight:orientation===o?700:400,background:orientation===o?'rgba(90,173,94,0.25)':'transparent',borderColor:orientation===o?'var(--green-bright)':'rgba(90,173,94,0.2)',color:orientation===o?'var(--green-bright)':'var(--white-dim)',boxShadow:orientation===o?'0 0 10px rgba(90,173,94,0.2)':'none',transition:'all 0.15s',flexShrink:0}}>
+                    {l}
+                  </button>
+                ))}
+              </>
+            )}
+            <div className="label-xs" style={{marginLeft:'auto',color:allPlaced?'var(--green-bright)':'var(--green-dim)',flexShrink:0}}>
+              {placedShips.length}/{SHIPS.length}
+            </div>
+            {allPlaced && (
+              <button className="btn btn-primary" onClick={handleDeploy}
+                style={{padding:'0.45rem 1rem',fontSize:'clamp(0.68rem,2.8vw,0.85rem)',letterSpacing:'0.14em',minHeight:40,boxShadow:'0 0 18px rgba(90,173,94,0.4)',animation:'blink 1.5s ease-in-out infinite',flexShrink:0}}>
+                ▶ DEPLOY FLEET
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════
+  // LANDSCAPE LAYOUT
+  // ═══════════════════════════════════════════════════
+  return (
+    <div className="screen" style={{ background:'var(--bg-void)', flexDirection:'row', overflow:'hidden' }}>
+
+      {/* ── LEFT PANEL ── */}
+      <div style={{ width:'clamp(130px,18vw,190px)', display:'flex', flexDirection:'column', background:'var(--bg-panel)', borderRight:'var(--border-panel)', overflow:'hidden', flexShrink:0 }}>
+
+        <div style={{ padding:'clamp(0.3rem,1.2vw,0.6rem) clamp(0.4rem,1.2vw,0.7rem)', borderBottom:'var(--border-panel)', display:'flex', alignItems:'center', gap:'0.4rem', flexShrink:0 }}>
+          <button className="back-btn" onClick={()=>{play('click');onBack();}} style={{width:32,height:32,flexShrink:0}}>
+            <GameIcon id="back" size={13}/>
+          </button>
+          <div style={{overflow:'hidden'}}>
+            <div className="label-xs" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{playerLabel}</div>
+            <div className="title-font" style={{fontSize:'clamp(0.65rem,1.8vw,0.85rem)',color:'var(--white-cream)',whiteSpace:'nowrap'}}>DEPLOYMENT</div>
+          </div>
+        </div>
+
+        {/* Timer */}
+        <div style={{padding:'clamp(0.3rem,1.2vw,0.5rem)',borderBottom:'var(--border-panel)',flexShrink:0}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'0.25rem'}}>
+            <div className="label-xs">TIME</div>
+            <div className="title-font" style={{fontSize:'clamp(0.8rem,2.2vw,1.1rem)',color:timeColor,fontFamily:'Share Tech Mono'}}>
+              {String(Math.floor(timeLeft/60)).padStart(2,'0')}:{String(timeLeft%60).padStart(2,'0')}
+            </div>
+          </div>
+          <div style={{height:3,background:'rgba(90,173,94,0.1)',borderRadius:2}}>
+            <div style={{height:'100%',width:`${pct}%`,background:timeColor,borderRadius:2,transition:'width 1s linear,background 0.5s'}}/>
+          </div>
+        </div>
+
+        {/* Orientation */}
+        {!allPlaced && (
+          <div style={{padding:'clamp(0.3rem,1.2vw,0.5rem)',borderBottom:'var(--border-panel)',flexShrink:0}}>
+            <div className="label-xs" style={{marginBottom:'0.25rem'}}>▸ ORIENTATION</div>
+            <div style={{display:'flex',gap:'0.25rem'}}>
+              {[{o:'h',l:'↔'},{o:'v',l:'↕'},{o:'d',l:'↘'}].map(({o,l})=>(
+                <button key={o} className="btn" onClick={()=>{play('click');setOrient(o);}}
+                  style={{flex:1,padding:'0.35rem',background:orientation===o?'rgba(90,173,94,0.25)':'transparent',borderColor:orientation===o?'var(--green-bright)':'rgba(90,173,94,0.2)',fontSize:'clamp(0.7rem,2.5vw,0.95rem)',fontWeight:orientation===o?700:400,color:orientation===o?'var(--green-bright)':'var(--white-dim)',boxShadow:orientation===o?'0 0 10px rgba(90,173,94,0.2)':'none',minHeight:36,transition:'all 0.15s'}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Selected ship */}
+        {selectedShip && !allPlaced && (
+          <div style={{padding:'clamp(0.3rem,1vw,0.45rem)',borderBottom:'var(--border-panel)',flexShrink:0}}>
+            <div className="label-xs" style={{marginBottom:'0.2rem'}}>▸ SELECTED</div>
+            <div style={{background:'rgba(90,173,94,0.08)',border:'1px solid rgba(90,173,94,0.2)',padding:'0.3rem 0.4rem'}}>
+              <div style={{fontSize:'clamp(0.55rem,1.8vw,0.68rem)',color:'var(--green-accent)',fontFamily:'Share Tech Mono',fontWeight:700}}>{selectedShip.name}</div>
+              <div style={{fontSize:'clamp(0.45rem,1.4vw,0.55rem)',color:'var(--white-dim)',marginTop:2}}>{'▬'.repeat(selectedShip.size)} {selectedShip.size}u</div>
+            </div>
+          </div>
+        )}
+
+        {/* Fleet status */}
+        <div style={{flex:1,overflowY:'auto',padding:'clamp(0.3rem,1vw,0.45rem)'}}>
+          <div className="label-xs" style={{marginBottom:'0.2rem'}}>▸ STATUS</div>
+          {SHIPS.map(ship => {
+            const placed = !!placedShips.find(p => p.id === ship.id);
+            return (
+              <div key={ship.id} style={{display:'flex',alignItems:'center',gap:'0.25rem',padding:'0.15rem 0',fontSize:'clamp(0.45rem,1.4vw,0.56rem)',fontFamily:'Share Tech Mono',color:placed?'var(--green-bright)':'rgba(90,173,94,0.35)'}}>
+                {placed?'✓':'—'} {ship.name}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Actions */}
+        <div style={{padding:'clamp(0.3rem,1.2vw,0.5rem)',borderTop:'var(--border-panel)',display:'flex',flexDirection:'column',gap:'0.3rem',flexShrink:0}}>
+          <button className="btn" onClick={handleAutoPlace} style={{fontSize:'clamp(0.58rem,1.9vw,0.72rem)',padding:'0.38rem',minHeight:36}}>
+            <GameIcon id="lightning" size={12}/> AUTO
+          </button>
+          <button className="btn" onClick={handleUndo} disabled={shipHistory.length===0}
+            style={{fontSize:'clamp(0.58rem,1.9vw,0.72rem)',padding:'0.38rem',opacity:shipHistory.length?1:0.3,minHeight:36}}>
+            <GameIcon id="undo" size={12}/> UNDO
+          </button>
+          {allPlaced && (
+            <button className="btn btn-primary" onClick={handleDeploy}
+              style={{padding:'0.5rem',fontSize:'clamp(0.62rem,1.9vw,0.78rem)',letterSpacing:'0.14em',minHeight:40,boxShadow:'0 0 18px rgba(90,173,94,0.4)',animation:'blink 1.5s ease-in-out infinite'}}>
+              ▶ DEPLOY FLEET
+            </button>
+          )}
+          <div className="label-xs" style={{textAlign:'center',color:allPlaced?'var(--green-bright)':'var(--green-dim)'}}>
+            {placedShips.length}/{SHIPS.length} PLACED
+          </div>
+        </div>
+      </div>
+
+      {/* ── CENTER: Grid + Ship Circles ── */}
+      <div ref={gridWrap} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'clamp(0.2rem,0.8vw,0.5rem)', overflow:'hidden', position:'relative', gap:'0.3rem' }}>
+        <div className="label-xs" style={{textAlign:'center',flexShrink:0}}>DEPLOYMENT GRID — TAP TO PLACE</div>
+
+        {gridPx>0 && (
+          <CoordGrid grid={grid} showShips interactive={!allPlaced&&!!selectedShip}
+            placementMode={!allPlaced} pendingShip={selectedShip} pendingOrient={orientation}
+            onPlaceShip={handlePlace} size={gridPx}/>
+        )}
+
+        {/* Ship circles below grid */}
+        <div style={{ display:'flex', justifyContent:'center', alignItems:'flex-start', gap:'clamp(0.5rem,2vw,1.1rem)', flexWrap:'nowrap', flexShrink:0, paddingTop:'0.2rem' }}>
+          {SHIPS.map(ship => <ShipCircle key={ship.id} ship={ship} size={50}/>)}
+        </div>
+
+        <Toast/>
+      </div>
+    </div>
+  );
+}
