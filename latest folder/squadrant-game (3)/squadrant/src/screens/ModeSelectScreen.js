@@ -5,14 +5,13 @@ import { LEVELS, getLevelProgress } from '../utils/levels';
 
 export default function ModeSelectScreen({ mode, onBack, onConfirm }) {
   const { play } = useApp();
-  const [step, setStep]         = useState(1);
+  const isVsComputer = mode === 'vs-computer';
+  const lockLevels   = isVsComputer;
+  const [step, setStep]         = useState(isVsComputer ? 2 : 1);
   const [subMode, setSubMode]   = useState(null);
   const [progress]              = useState(() => getLevelProgress());
   const [toast, setToast]       = useState(null);
-  const isVsComputer = mode === 'vs-computer';
-  const lockLevels   = isVsComputer;
 
-  useEffect(() => { if (isVsComputer && step === 1) setStep(2); }, [isVsComputer, step]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2600);
@@ -134,7 +133,7 @@ export default function ModeSelectScreen({ mode, onBack, onConfirm }) {
           const prev     = idx > 0 ? LEVELS[idx - 1] : null;
 
           return (
-            <button key={d.id} onClick={()=>handleDiff(d.id)} disabled={!unlocked}
+            <button key={d.id} onClick={()=>handleDiff(d.id)} aria-disabled={!unlocked}
               style={{
                 width:'100%', padding:'clamp(1rem,4vw,1.5rem)',
                 background: unlocked ? 'var(--bg-card)' : 'rgba(20,20,20,0.45)',

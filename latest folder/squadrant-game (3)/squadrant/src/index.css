@@ -608,6 +608,9 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* Result stage */
 .attack-fx.result {
+  /* Above the GameOver overlay so the final hit/miss is readable before the
+     end screen appears. It auto-clears after the result beat. */
+  z-index: 210;
   background:
     radial-gradient(circle at 50% 45%,
       rgba(2,12,4,0.32) 0%,

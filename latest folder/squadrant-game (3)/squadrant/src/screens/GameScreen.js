@@ -273,12 +273,15 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
 
     scheduleFx(() => {
       const outcome = resolve();
-      if (!outcome || outcome.gameOver) { setAttackFx(null); return; }
+      if (!outcome) { setAttackFx(null); return; }
+      // Show the impact even on the winning shot. The result overlay sits above
+      // the GameOver screen briefly, then clears to reveal it.
       setAttackFx({ stage: 'result', side, weapon, target, outcome, key });
+      const holdMs = outcome.gameOver ? Math.min(resultMs, 700) : resultMs;
       scheduleFx(() => {
         setAttackFx(f => (f?.key === key ? null : f));
         if (onDone) onDone();
-      }, resultMs);
+      }, holdMs);
     }, 980);
   }, [play, scheduleFx, clearFxTimers]);
 
