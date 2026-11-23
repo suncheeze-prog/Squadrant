@@ -549,6 +549,26 @@ input[type=number] { -moz-appearance: textfield; }
   opacity: 0.85;
   margin-bottom: 0.35rem;
 }
+.attack-fx-countdown {
+  font-family: 'Black Ops One', serif;
+  font-size: clamp(1.6rem, 7vw, 2.8rem);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 26px currentColor;
+  margin-bottom: 0.2rem;
+  animation: fxCountdownPulse 1s ease-out both;
+}
+.attack-fx-countdown span {
+  font-size: 0.5em;
+  opacity: 0.75;
+  margin-left: 0.12em;
+  letter-spacing: 0;
+}
+@keyframes fxCountdownPulse {
+  0%   { transform: scale(1.22); opacity: 0.45; }
+  35%  { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
 .attack-fx-title {
   font-family: 'Black Ops One', serif;
   font-size: clamp(1.6rem, 7vw, 2.8rem);

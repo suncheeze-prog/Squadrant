@@ -73,7 +73,7 @@ export default function OnlineLobbyScreen({ user, onBack, onGameReady }) {
 
   // ── Actions ──
   const handleCreate = async () => {
-    setError(''); setPhase('loading'); play('select');
+    setError(''); setPhase('loading');
     try {
       const res = await createOnlineRoom({ name: user?.username || 'Host', difficulty });
       // Register self & set initial room state

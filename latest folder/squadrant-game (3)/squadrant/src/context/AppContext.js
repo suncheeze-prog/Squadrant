@@ -110,6 +110,10 @@ function createAudioEngine() {
   let muted = false;
   let currentMusic = null; // HTMLAudioElement
   let currentMusicSrc = '';
+  let currentRequest = ''; // requested track key — survives MP3 failure → procedural fallback
+  let procTimer = null;
+  let procMode = null;
+  let gestureCleanup = null; // removes pending autoplay-retry listeners
 
   const getCtx = () => {
     if (!ctx) {
@@ -151,44 +155,166 @@ function createAudioEngine() {
   const setSfxVol    = (v) => { sfxVol    = v / 100; applyVols(); };
   const setMuted     = (m) => { muted = m; applyVols(); };
 
-  /* ── MP3 Music System ── */
-  const playMusic = (src, fade = true) => {
-    if (currentMusicSrc === src) return;
+  /* ── Music: MP3 with procedural fallback ── */
+  const musicNote = (freq, dur, gain = 0.12, type = 'sine', delay = 0) => {
+    const c = getCtx();
+    if (!c || muted || c.state !== 'running') return;
+    try {
+      const t = c.currentTime + delay;
+      const o = c.createOscillator();
+      const gn = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t);
+      gn.gain.setValueAtTime(0.0001, t);
+      gn.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + 0.04);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(gn); gn.connect(musicGain);
+      o.start(t); o.stop(t + dur + 0.05);
+    } catch (e) { /* audio can be unavailable */ }
+  };
+
+  const MENU_SEQ = [220.00, 261.63, 329.63, 392.00, 329.63, 261.63, 246.94, 196.00];
+  const GAME_SEQ = [110.00, 146.83, 164.81, 146.83, 110.00, 130.81, 146.83, 98.00];
+
+  const stopProcMusic = () => {
+    procMode = null;
+    if (procTimer) { clearTimeout(procTimer); procTimer = null; }
+  };
+
+  const startProcMusic = (mode = 'menu') => {
+    const c = getCtx();
+    if (!c) return;
+    stopProcMusic();
+    procMode = mode;
+    const seq = mode === 'menu' ? MENU_SEQ : GAME_SEQ;
+    const interval = mode === 'menu' ? 620 : 280;
+    let i = 0;
+    const tick = () => {
+      if (!procMode) return;
+      const note = seq[i % seq.length];
+      if (mode === 'menu') {
+        musicNote(note, 1.7, 0.11, 'sine');
+        if (i % 4 === 0) musicNote(note / 2, 2.4, 0.07, 'triangle');
+      } else {
+        musicNote(note, 0.34, 0.10, 'square');
+        musicNote(note * 2, 0.18, 0.035, 'triangle', 0.02);
+        if (i % 4 === 0) musicNote(note / 2, 0.5, 0.08, 'sawtooth');
+      }
+      i++;
+      procTimer = setTimeout(tick, interval);
+    };
+    tick();
+  };
+
+  const playMusic = (src, fade = true, fallbackMode = null) => {
+    if (currentRequest === src) return;
     stopMusic(fade ? 0.5 : 0);
+    currentRequest = src;
+
+    let audio;
+    try {
+      audio = new Audio(src);
+    } catch (e) {
+      if (fallbackMode) startProcMusic(fallbackMode);
+      return;
+    }
+
+    audio.loop = true;
+    audio.volume = 0;
+    currentMusic = audio;
     currentMusicSrc = src;
 
-    const audio = new Audio(src);
-    audio.loop = true;
-    audio.volume = muted ? 0 : masterVol * musicVol;
+    let failed = false;
+    let retryArmed = false;
 
-    const promise = audio.play();
-    if (promise) promise.catch(() => {/* autoplay blocked */});
+    const removeGestureRetry = () => {
+      retryArmed = false;
+      window.removeEventListener('pointerdown', retryPlay);
+      window.removeEventListener('keydown', retryPlay);
+      window.removeEventListener('touchstart', retryPlay);
+      window.removeEventListener('click', retryPlay);
+      if (gestureCleanup === removeGestureRetry) gestureCleanup = null;
+    };
+
+    const useFallback = () => {
+      if (failed) return;
+      failed = true;
+      removeGestureRetry();
+      if (currentMusic === audio) { currentMusic = null; currentMusicSrc = ''; }
+      try { audio.pause(); } catch (e) { /* noop */ }
+      if (currentRequest !== src) return;
+      if (fallbackMode) {
+        console.info(`[Audio] ${src} unavailable — using procedural ${fallbackMode} music`);
+        startProcMusic(fallbackMode);
+      }
+    };
+
+    const handlePlayError = (err) => {
+      if (err && err.name === 'NotAllowedError') {
+        // Autoplay policy blocked playback. Keep the track and retry after
+        // the first real user gesture instead of switching to fallback music.
+        if (retryArmed) return;
+        retryArmed = true;
+        window.addEventListener('pointerdown', retryPlay, { once: true });
+        window.addEventListener('keydown', retryPlay, { once: true });
+        window.addEventListener('touchstart', retryPlay, { once: true });
+        window.addEventListener('click', retryPlay, { once: true });
+        gestureCleanup = removeGestureRetry;
+        return;
+      }
+      useFallback();
+    };
+
+    const retryPlay = () => {
+      removeGestureRetry();
+      if (currentRequest !== src || currentMusic !== audio) return;
+      try {
+        const p = audio.play();
+        if (p) p.catch(handlePlayError);
+      } catch (e) {
+        handlePlayError(e);
+      }
+    };
+
+    audio.addEventListener('error', useFallback, { once: true });
+
+    try {
+      const promise = audio.play();
+      if (promise) promise.catch(handlePlayError);
+    } catch (e) {
+      handlePlayError(e);
+    }
 
     if (fade) {
-      audio.volume = 0;
       let v = 0;
+      const target = () => (muted ? 0 : masterVol * musicVol);
       const step = () => {
-        v = Math.min(v + 0.05, muted ? 0 : masterVol * musicVol);
+        if (currentMusic !== audio) return;
+        v = Math.min(v + 0.05, target());
         audio.volume = v;
-        if (v < masterVol * musicVol && !muted) setTimeout(step, 80);
+        if (v < target() && !muted) setTimeout(step, 80);
       };
       setTimeout(step, 80);
+    } else {
+      audio.volume = muted ? 0 : masterVol * musicVol;
     }
-    currentMusic = audio;
   };
 
   const stopMusic = (fadeSecs = 0.8) => {
+    if (gestureCleanup) gestureCleanup();
+    stopProcMusic();
+    currentRequest = '';
     if (!currentMusic) return;
     const audio = currentMusic;
     currentMusic = null;
     currentMusicSrc = '';
-    if (fadeSecs <= 0) { audio.pause(); return; }
+    if (fadeSecs <= 0) { try { audio.pause(); } catch (e) { /* noop */ } return; }
     let v = audio.volume;
     const step = () => {
       v = Math.max(0, v - 0.05);
       audio.volume = v;
       if (v > 0) setTimeout(step, 80);
-      else audio.pause();
+      else { try { audio.pause(); } catch (e) { /* noop */ } }
     };
     step();
   };
@@ -278,9 +404,76 @@ function createAudioEngine() {
     }
   };
 
+  /* ── Recorded WAV samples (UI click + fire whoosh) ── */
+  const SAMPLE_SRC = {
+    click: '/sounds/click.wav',
+    fire:  '/sounds/air-whoosh.wav',
+  };
+  const sampleData = {};     // fetched ArrayBuffers
+  const sampleBuffers = {};  // decoded AudioBuffers
+  let samplesStarted = false;
+
+  const decodeSample = (key) => {
+    if (sampleBuffers[key] || !sampleData[key]) return;
+    const c = getCtx();
+    if (!c) return;
+    const data = sampleData[key];
+    sampleData[key] = null; // decodeAudioData detaches the buffer — decode once
+    try {
+      c.decodeAudioData(
+        data,
+        buf => { sampleBuffers[key] = buf; },
+        err => console.warn(`[Audio] Could not decode ${SAMPLE_SRC[key]}:`, err)
+      );
+    } catch (e) {
+      console.warn(`[Audio] Could not decode ${SAMPLE_SRC[key]}:`, e);
+    }
+  };
+
+  const preloadSamples = () => {
+    if (samplesStarted) return;
+    samplesStarted = true;
+    // Create the (suspended) context early so WAVs finish decoding before the
+    // first click. It is resumed on the first user gesture as usual.
+    if (!getCtx() || typeof fetch !== 'function') return;
+    Object.entries(SAMPLE_SRC).forEach(([key, src]) => {
+      fetch(src)
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.arrayBuffer();
+        })
+        .then(buf => { sampleData[key] = buf; decodeSample(key); })
+        .catch(err => console.warn(`[Audio] Could not load ${src}:`, err));
+    });
+  };
+
+  const playSample = (key) => {
+    // Muted still counts as handled, so we never fall back to synth while muted.
+    if (muted) return true;
+    const c = getCtx();
+    if (!c) return false;
+    let buf = sampleBuffers[key];
+    if (!buf) {
+      decodeSample(key);
+      buf = sampleBuffers[key];
+    }
+    if (!buf) return false;
+    try {
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      src.connect(sfxGain);
+      src.start();
+      return true;
+    } catch (e) {
+      console.warn(`[Audio] Could not play ${SAMPLE_SRC[key]}:`, e);
+      return false;
+    }
+  };
+
   const sounds = {
-    click:   () => tone(880,'square',0.08,0.3),
-    select:  () => { tone(660,'square',0.06,0.2); tone(880,'square',0.06,0.2); },
+    click:   () => { if (!playSample('click')) tone(880,'square',0.08,0.3); },
+    select:  () => { if (!playSample('click')) { tone(660,'square',0.06,0.2); tone(880,'square',0.06,0.2); } },
+    fire:    () => { if (!playSample('fire')) { sweep(280,900,0.3,0.3,'sawtooth'); noise(0.22,0.4); } },
     hit:     () => { noise(0.3,0.8); tone(180,'sawtooth',0.4,0.5); },
     miss:    () => { sweep(340,110,0.32,0.28,'sine'); noise(0.16,0.22); },
     blocked: () => { tone(300,'square',0.14,0.32); tone(180,'square',0.2,0.24); },
@@ -300,7 +493,7 @@ function createAudioEngine() {
     launchNuke:  () => { tone(90,'sawtooth',0.75,0.55); sweep(220,55,0.9,0.4,'square'); },
   };
 
-  return { getCtx, resume, startBg, stopBg, playMusic, stopMusic, setMasterVol, setMusicVol, setSfxVol, setMuted, sounds };
+  return { getCtx, resume, startBg, stopBg, playMusic, stopMusic, setMasterVol, setMusicVol, setSfxVol, setMuted, preloadSamples, sounds };
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -327,6 +520,9 @@ export function AppProvider({ children }) {
     root.setAttribute('data-theme', themeId);
     localStorage.setItem('sq_theme', themeId);
   }, [themeId]);
+
+  // Preload recorded UI sounds so the first click is instant
+  useEffect(() => { audio.preloadSamples(); }, [audio]);
 
   // Sync volumes
   useEffect(() => { audio.setMasterVol(masterVol); localStorage.setItem('sq_vol_master', masterVol); }, [masterVol, audio]);
@@ -368,13 +564,13 @@ export function AppProvider({ children }) {
   const playMenuMusic = useCallback(() => {
     if (!soundOn) return;
     audio.resume();
-    audio.playMusic('/sounds/menu.mp3');
+    audio.playMusic('/sounds/menu.mp3', true, 'menu');
   }, [soundOn, audio]);
 
   const playGameMusic = useCallback(() => {
     if (!soundOn) return;
     audio.resume();
-    audio.playMusic('/sounds/game.mp3');
+    audio.playMusic('/sounds/game.mp3', true, 'game');
   }, [soundOn, audio]);
 
   const stopMusic = useCallback(() => audio.stopMusic(), [audio]);

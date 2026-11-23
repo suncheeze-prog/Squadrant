@@ -258,18 +258,39 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
     fxTimers.current = [];
   }, []);
 
-  const runAttackSequence = useCallback(({ side, weapon, target, resolve, resultMs = 900, onDone }) => {
+  const runAttackSequence = useCallback(({
+    side, weapon, target, resolve, resultMs = 900, onDone,
+    targetingMs = 980, showCountdown = false, deferLaunch = false, skipAudio = false,
+  }) => {
     clearFxTimers();
     const key = Date.now() + Math.random();
     const launchSfx = weapon === 'bomb' ? 'launchBomb' : weapon === 'nuke' ? 'launchNuke' : 'launchRocket';
-    play('targeting');
-    play(launchSfx);
-    setAttackFx({ stage: 'targeting', side, weapon, target, key });
+    const totalTargeting = Math.max(700, targetingMs);
+    const lockMs = Math.max(520, totalTargeting - 460);
+    const seconds = Math.ceil(totalTargeting / 1000);
+    if (!skipAudio) {
+      play('targeting');
+      if (!deferLaunch) play(launchSfx);
+    }
+    setAttackFx({
+      stage: 'targeting', side, weapon, target, key,
+      countdown: showCountdown ? seconds : null,
+    });
+
+    // Tick the visible countdown once per second during a long targeting phase.
+    if (showCountdown) {
+      for (let i = 1; i < seconds; i++) {
+        scheduleFx(() => {
+          setAttackFx(f => (f?.key === key ? { ...f, countdown: seconds - i } : f));
+        }, i * 1000);
+      }
+    }
 
     scheduleFx(() => {
-      play('lock');
-      setAttackFx(f => (f?.key === key ? { ...f, stage: 'lock' } : f));
-    }, 520);
+      if (!skipAudio) play('lock');
+      if (deferLaunch) play(launchSfx);
+      setAttackFx(f => (f?.key === key ? { ...f, stage: 'lock', countdown: null } : f));
+    }, lockMs);
 
     scheduleFx(() => {
       const outcome = resolve();
@@ -282,7 +303,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
         setAttackFx(f => (f?.key === key ? null : f));
         if (onDone) onDone();
       }, holdMs);
-    }, 980);
+    }, totalTargeting);
   }, [play, scheduleFx, clearFxTimers]);
 
   // ── AI turn: pick a target, run the FX sequence, then resolve ──
@@ -299,6 +320,9 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
       side: 'enemy',
       weapon: 'rocket',
       target: coord,
+      targetingMs: 5000,
+      showCountdown: true,
+      deferLaunch: true,
       resolve: () => {
         const r = doAttack(coord.x, coord.y, playerGrid, null, 'COMPUTER');
         let outcome = { type: 'miss' };
@@ -560,7 +584,6 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
   const handleFire = useCallback(() => {
     if (turn !== 1 || phase !== 'playing' || attackFx) return;
     aiAfterResultRef.current = false;
-    play('click');
     let targets = [];
     if (isAdvanced) {
       const m = parseFloat(lineM), b = parseFloat(lineB), xv = parseFloat(lineX);
@@ -607,6 +630,9 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
     }
 
     const weaponId = pendingShot ? 'rocket' : selWpn.id;
+
+    // Fire-button whoosh — only after the shot passes validation.
+    play('fire');
 
     if (isLan) {
       // Outgoing shot: show the targeting beat while the host resolves it.
@@ -696,6 +722,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
         side: 'player',
         weapon: weaponId,
         target: baseTarget,
+        skipAudio: true,
         resolve: finishPlayerAttack,
         onDone: () => {
           if (!aiAfterResultRef.current) return;
@@ -766,7 +793,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
         display:'flex', alignItems:'center', gap:'0.28rem',
       }}>
         {aiThink
-          ? <><span style={{animation:'aiPulse 0.7s ease-in-out infinite'}}>◌</span> TARGETING</>
+          ? <><span style={{animation:'aiPulse 0.7s ease-in-out infinite'}}>◌</span> TARGETING{attackFx?.countdown != null ? ` ${attackFx.countdown}s` : ''}</>
           : isMyTurn
             ? <>
                 <span style={{color:'var(--green-bright)'}}>▶</span> YOUR TURN
@@ -1181,7 +1208,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
           {aiThink && (
             <div style={{position:'absolute',inset:0,background:'rgba(2,12,4,0.55)',display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
               <div style={{padding:'0.45rem 1.1rem',background:'rgba(70,50,5,0.9)',border:'1px solid var(--amber)',fontFamily:'Share Tech Mono',fontSize:'clamp(0.7rem,2.5vw,0.9rem)',color:'var(--amber)',letterSpacing:'0.12em',animation:'aiPulse 0.8s ease-in-out infinite'}}>
-                ◌ TARGETING…
+                ◌ COMPUTER TARGETING{attackFx?.countdown != null ? ` — ${attackFx.countdown}s` : '…'}
               </div>
             </div>
           )}
@@ -1373,7 +1400,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
           {enemyPx>0 && <CoordGrid grid={enemyGrid} showShips={false} interactive={isMyTurn} onCellClick={(x,y)=>{play('click');setInputX(String(x));setInputY(String(y));setHL({x,y});setLineX(String(x));}} highlight={highlight||advTarget} size={enemyPx} revealedCells={revealedCells}/>}
           {aiThink && (
             <div style={{position:'absolute',inset:0,background:'rgba(2,12,4,0.55)',display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
-              <div style={{padding:'0.45rem 1.1rem',background:'rgba(70,50,5,0.9)',border:'1px solid var(--amber)',fontFamily:'Share Tech Mono',fontSize:'clamp(0.6rem,1.8vw,0.8rem)',color:'var(--amber)',letterSpacing:'0.12em',animation:'aiPulse 0.8s ease-in-out infinite'}}>◌ TARGETING…</div>
+              <div style={{padding:'0.45rem 1.1rem',background:'rgba(70,50,5,0.9)',border:'1px solid var(--amber)',fontFamily:'Share Tech Mono',fontSize:'clamp(0.6rem,1.8vw,0.8rem)',color:'var(--amber)',letterSpacing:'0.12em',animation:'aiPulse 0.8s ease-in-out infinite'}}>◌ COMPUTER TARGETING{attackFx?.countdown != null ? ` — ${attackFx.countdown}s` : '…'}</div>
             </div>
           )}
           {isLan && turn===2 && phase==='playing' && (

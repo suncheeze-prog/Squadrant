@@ -28,7 +28,7 @@ const RESULT_LABEL = {
 export default function AttackFx({ fx }) {
   if (!fx) return null;
 
-  const { stage, side, weapon, target, outcome } = fx;
+  const { stage, side, weapon, target, outcome, countdown } = fx;
   const enemy = side === 'enemy';
   const accent = enemy ? 'var(--red-bright)' : 'var(--green-bright)';
   const weaponLabel = WEAPON_LABEL[weapon] || 'STRIKE';
@@ -59,6 +59,12 @@ export default function AttackFx({ fx }) {
           <div className="attack-fx-kicker" style={{ color: enemy ? 'var(--red-bright)' : 'var(--green-accent)' }}>
             {enemy ? '⚠ INCOMING FIRE' : '▸ FIRE MISSION'}
           </div>
+          {!locked && countdown != null && (
+            <div className="attack-fx-countdown" key={countdown}
+              style={{ color: enemy ? 'var(--red-bright)' : 'var(--green-bright)' }}>
+              {countdown}<span>s</span>
+            </div>
+          )}
           <div className="attack-fx-title" style={{ color: locked ? 'var(--amber)' : accent }}>
             {locked ? 'TARGET LOCK' : 'TARGETING'}
             {!locked && <span className="attack-fx-dots">...</span>}
@@ -68,7 +74,11 @@ export default function AttackFx({ fx }) {
           </div>
           <div className="attack-fx-status">
             <span className="attack-fx-led" style={{ background: locked ? 'var(--amber)' : accent }} />
-            {locked ? 'SOLUTION CONFIRMED — FIRING' : 'CALCULATING FIRING SOLUTION'}
+            {locked
+              ? 'SOLUTION CONFIRMED — FIRING'
+              : countdown != null
+                ? 'COMPUTER IS TARGETING YOUR FLEET'
+                : 'CALCULATING FIRING SOLUTION'}
           </div>
         </div>
       </div>

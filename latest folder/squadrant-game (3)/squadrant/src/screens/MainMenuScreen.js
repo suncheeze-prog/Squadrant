@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useOrientation } from '../hooks/useOrientation';
 import GameIcon from '../components/GameIcon';
@@ -55,6 +55,14 @@ export default function MainMenuScreen({ user, onSelect, onSettings, onHowToPlay
   const { play } = useApp();
   const { isLandscape } = useOrientation();
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [nativeNotice, setNativeNotice] = useState(false);
+  const nativeLan = lanAvailable();
+
+  useEffect(() => {
+    if (!nativeNotice) return;
+    const t = setTimeout(() => setNativeNotice(false), 4000);
+    return () => clearTimeout(t);
+  }, [nativeNotice]);
 
   return (
     <div className="screen" style={{ background:'var(--bg-void)' }}>
@@ -207,7 +215,9 @@ export default function MainMenuScreen({ user, onSelect, onSettings, onHowToPlay
         </div>
 
         {(() => {
-          const visibleModes = MODES.filter(m => m.id !== 'lan' || lanAvailable());
+          // Always show every mode. LAN is native-only, so on web we keep the
+          // card visible with an "Android app only" badge instead of hiding it.
+          const visibleModes = MODES;
           return (
             <div style={{
               display: isLandscape ? 'grid' : 'flex',
@@ -221,7 +231,11 @@ export default function MainMenuScreen({ user, onSelect, onSettings, onHowToPlay
             <div key={m.id} className="m-card">
               <button
                 className="mode-btn"
-                onClick={() => { play('select'); onSelect(m.id); }}
+                onClick={() => {
+                  play('select');
+                  if (m.id === 'lan' && !nativeLan) { setNativeNotice(true); return; }
+                  onSelect(m.id);
+                }}
                 style={{ clipPath: m.clip, borderColor: m.borderColor }}
                 onMouseEnter={e => {
                   e.currentTarget.style.borderColor = m.color;
@@ -256,8 +270,24 @@ export default function MainMenuScreen({ user, onSelect, onSettings, onHowToPlay
                   }}>
                     {m.desc}
                   </div>
-                  <div className="label-xs" style={{ marginTop:'0.25rem', color: m.color, opacity:0.65 }}>
+                  <div className="label-xs" style={{
+                    marginTop:'0.25rem', color: m.color, opacity:0.65,
+                    display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap',
+                  }}>
                     ▸ {m.sub}
+                    {m.id === 'lan' && !nativeLan && (
+                      <span style={{
+                        padding:'0.08rem 0.3rem',
+                        border:'1px solid rgba(232,160,0,0.55)',
+                        background:'rgba(232,160,0,0.08)',
+                        color:'var(--amber)',
+                        letterSpacing:'0.1em',
+                        fontSize:'0.85em',
+                        whiteSpace:'nowrap',
+                      }}>
+                        ANDROID APP ONLY
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="mode-arrow" style={{ color: m.color, fontSize:'1.1rem', flexShrink:0, opacity:0.7 }}>▶</div>
@@ -304,6 +334,21 @@ export default function MainMenuScreen({ user, onSelect, onSettings, onHowToPlay
         <span className="label-xs">SQUADRANT v2.0</span>
         <span className="label-xs">GRID: (-10,-10) TO (10,10)</span>
       </div>
+
+      {/* ── NATIVE-ONLY NOTICE ── */}
+      {nativeNotice && (
+        <div className="toast warn" role="status"
+          style={{
+            zIndex: 400,
+            whiteSpace: 'normal',
+            textAlign: 'center',
+            maxWidth: 'min(92vw, 420px)',
+            lineHeight: 1.5,
+          }}>
+          LAN Hotspot PvP runs only in the installed Android app.<br/>
+          Use ONLINE PvP in this browser.
+        </div>
+      )}
 
       {/* ── LOGOUT CONFIRMATION MODAL ── */}
       {confirmLogout && (

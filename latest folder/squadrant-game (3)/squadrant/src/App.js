@@ -30,6 +30,16 @@ const LEVEL_SCREENS = new Set([
   'lan-waiting',
 ]);
 
+const MENU_MUSIC_SCREENS = new Set([
+  'login', 'signup', 'forgot',
+  'main-menu', 'mode-select', 'settings', 'how-to-play', 'credits', 'scoreboard',
+]);
+
+const GAME_MUSIC_SCREENS = new Set([
+  'ship-placement', 'defense-placement', 'ship-placement-p2', 'defense-placement-p2',
+  'game', 'lan-waiting',
+]);
+
 function AppInner() {
   const { play, playMenuMusic, playGameMusic, stopMusic, audioResume } = useApp();
   const [screen, setScreen]       = useState('login');
@@ -100,19 +110,21 @@ function AppInner() {
 
   // ── Music
   useEffect(() => {
-    if (screen === 'main-menu') playMenuMusic();
-    else if (screen === 'game') playGameMusic();
-    else if (screen === 'lan-lobby') stopMusic();
+    if (MENU_MUSIC_SCREENS.has(screen)) playMenuMusic();
+    else if (GAME_MUSIC_SCREENS.has(screen)) playGameMusic();
+    else stopMusic();
   }, [screen, playMenuMusic, playGameMusic, stopMusic]);
 
-  // ── Unlock AudioContext on first touch
+  // ── Unlock AudioContext on first interaction
   useEffect(() => {
     const unlock = () => { audioResume(); };
     window.addEventListener('touchstart', unlock, { once: true });
     window.addEventListener('click',      unlock, { once: true });
+    window.addEventListener('keydown',    unlock, { once: true });
     return () => {
       window.removeEventListener('touchstart', unlock);
       window.removeEventListener('click',      unlock);
+      window.removeEventListener('keydown',    unlock);
     };
   }, [audioResume]);
 
@@ -120,12 +132,11 @@ function AppInner() {
   const handleLogin = useCallback((u) => { setUser(u); go('main-menu'); }, [go]);
 
   const handleModeSelect = useCallback((m) => {
-    play('select');
     setMode(m);
     if (m === 'lan')         go('lan-lobby');
     else if (m === 'online') go('online-lobby');
     else                     go('mode-select');
-  }, [go, play]);
+  }, [go]);
 
   const handleConfirm = useCallback(({ subMode, difficulty }) => {
     setCfg({ mode: gameMode, subMode, difficulty });
