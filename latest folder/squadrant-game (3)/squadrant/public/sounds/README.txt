@@ -9,6 +9,7 @@ INCLUDED TRACKS:
 INCLUDED SOUND EFFECTS:
 
   click.wav       — UI click sound (buttons, cards, menu actions)
+  battle-click.wav — Battlefield click (grid taps, weapons, combat tabs)
   air-whoosh.wav  — Fire-button sound (plays when a shot is committed)
 
 Replace either MP3 with your own royalty-free track to customize the music.
@@ -21,7 +22,7 @@ LAN matchmaking loading screen:
 
 NOTES:
 - If menu.mp3 or game.mp3 is missing, procedural Web Audio plays instead
-- If click.wav or air-whoosh.wav cannot load, synthesized fallbacks play
+- If click.wav, battle-click.wav, or air-whoosh.wav cannot load, synthesized fallbacks play
 - Files must be royalty-free or original compositions
 - Recommended: 128-192kbps MP3 for music, 44.1kHz 16/24-bit WAV for SFX
 - Music fades in/out automatically (no abrupt cuts)

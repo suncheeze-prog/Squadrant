@@ -504,7 +504,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
     if (!isMyTurn && skill.category === 'rocket') { addLog(`⚠ Wait for your turn`, 'warn'); play('miss'); return; }
 
     setPScore(s => s - skill.cost);
-    play('select');
+    play('battleClick');
 
     if (skill.category === 'rocket') {
       // Arm the next shot: handleFire will use this pattern
@@ -815,13 +815,13 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
       <div style={{flex:1}}/>
 
       {/* Deploy Rockets button */}
-      <button onClick={() => { play('click'); setSkillsOpen(true); }}
+      <button onClick={() => { play('battleClick'); setSkillsOpen(true); }}
         style={{padding:'0.2rem 0.5rem',background:'rgba(232,160,0,0.18)',border:'1px solid var(--amber)',color:'var(--amber)',fontFamily:'Share Tech Mono',fontSize:'clamp(0.46rem,1.4vw,0.6rem)',fontWeight:700,letterSpacing:'0.08em',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',gap:'0.25rem',whiteSpace:'nowrap'}}>
         🚀 SKILLS
       </button>
 
       {/* Score display (clickable too) */}
-      <button onClick={() => { play('click'); setSkillsOpen(true); }}
+      <button onClick={() => { play('battleClick'); setSkillsOpen(true); }}
         style={{textAlign:'center',flexShrink:0,padding:'0.05rem 0.4rem',background:'rgba(40,80,42,0.35)',border:'1px solid rgba(90,173,94,0.4)',cursor:'pointer'}}>
         <div style={{fontSize:'clamp(0.36rem,1.1vw,0.48rem)',color:'var(--green-dim)',fontFamily:'Share Tech Mono',lineHeight:1.2}}>SCORE</div>
         <div style={{color:'var(--green-bright)',fontWeight:700,fontFamily:'Share Tech Mono',fontSize:'clamp(0.62rem,1.9vw,0.82rem)',lineHeight:1.1}}>{playerScore}</div>
@@ -1200,7 +1200,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
           </div>
           {enemyPx>0 && (
             <CoordGrid grid={enemyGrid} showShips={false} interactive={isMyTurn}
-              onCellClick={(x,y)=>{ play('click'); setInputX(String(x)); setInputY(String(y)); setHL({x,y}); setLineX(String(x)); }}
+              onCellClick={(x,y)=>{ play('battleClick'); setInputX(String(x)); setInputY(String(y)); setHL({x,y}); setLineX(String(x)); }}
               highlight={highlight||advTarget} size={enemyPx}
               revealedCells={revealedCells}/>
           )}
@@ -1228,7 +1228,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
           {/* Tab bar */}
           <div style={{display:'flex',borderBottom:'var(--border-panel)',flexShrink:0}}>
             {[{id:'attack',label:'🎯 FIRE'},{id:'fleet',label:'🚢 FLEET'},{id:'log',label:'📋 LOG'}].map(({id,label})=>(
-              <button key={id} onClick={()=>setTab(id)}
+              <button key={id} onClick={()=>{ play('battleClick'); setTab(id); }}
                 style={{flex:1,padding:'clamp(0.3rem,1.2vw,0.45rem)',background:activeTab===id?'rgba(90,173,94,0.12)':'transparent',border:'none',borderBottom:`2px solid ${activeTab===id?'var(--green-bright)':'transparent'}`,color:activeTab===id?'var(--green-accent)':'var(--green-dim)',fontSize:'clamp(0.5rem,2vw,0.65rem)',fontFamily:'Share Tech Mono',cursor:'pointer',transition:'all 0.15s',letterSpacing:'0.05em'}}>
                 {label}
               </button>
@@ -1245,7 +1245,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
                   const cnt=wpnCnt[w.id]; const sel=selWpn.id===w.id; const c=WPN_COLOR[w.id];
                   return (
                     <button key={w.id} className="wpn-btn"
-                      onClick={()=>{if(cnt>0){play('select');setSelWpn(w);}}} disabled={cnt<=0}
+                      onClick={()=>{if(cnt>0){play('battleClick');setSelWpn(w);}}} disabled={cnt<=0}
                       style={{flex:1,minHeight:46,background:sel?`${c}1a`:'rgba(10,22,10,0.55)',border:`1px solid ${sel?c:`${c}28`}`,color:cnt<=0?'rgba(90,90,90,0.4)':'var(--white-cream)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'0.08rem',cursor:cnt>0?'pointer':'not-allowed'}}>
                       <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:c,opacity:sel?1:0.3}}/>
                       <GameIcon id={w.id} size={16}/>
@@ -1367,7 +1367,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
             {WEAPONS.map(w=>{
               const cnt=wpnCnt[w.id];const sel=selWpn.id===w.id;const c=WPN_COLOR[w.id];
               return (
-                <button key={w.id} className="wpn-btn" onClick={()=>{if(cnt>0){play('select');setSelWpn(w);}}} disabled={cnt<=0} aria-pressed={sel}
+                <button key={w.id} className="wpn-btn" onClick={()=>{if(cnt>0){play('battleClick');setSelWpn(w);}}} disabled={cnt<=0} aria-pressed={sel}
                   style={{width:'100%',padding:'clamp(0.2rem,0.6vw,0.3rem) clamp(0.28rem,0.85vw,0.42rem)',background:sel?`${c}1a`:'rgba(10,22,10,0.55)',border:`1px solid ${sel?c:`${c}28`}`,color:cnt<=0?'rgba(90,90,90,0.4)':'var(--white-cream)',cursor:cnt>0?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:'0.28rem',minHeight:32}}>
                   <div style={{position:'absolute',left:0,top:0,bottom:0,width:2,background:c,opacity:sel?1:0.3}}/>
                   <GameIcon id={w.id} size={13} style={{flexShrink:0,marginLeft:'0.08rem'}}/>
@@ -1397,7 +1397,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
           <div className="label-xs" style={{marginBottom:'0.12rem',textAlign:'center',flexShrink:0}}>
             {isAdvanced?`▸ ${level.codename} — SOLVE y=mx+b`:`▸ ${level.codename} — TAP OR ENTER COORDS`}
           </div>
-          {enemyPx>0 && <CoordGrid grid={enemyGrid} showShips={false} interactive={isMyTurn} onCellClick={(x,y)=>{play('click');setInputX(String(x));setInputY(String(y));setHL({x,y});setLineX(String(x));}} highlight={highlight||advTarget} size={enemyPx} revealedCells={revealedCells}/>}
+          {enemyPx>0 && <CoordGrid grid={enemyGrid} showShips={false} interactive={isMyTurn} onCellClick={(x,y)=>{play('battleClick');setInputX(String(x));setInputY(String(y));setHL({x,y});setLineX(String(x));}} highlight={highlight||advTarget} size={enemyPx} revealedCells={revealedCells}/>}
           {aiThink && (
             <div style={{position:'absolute',inset:0,background:'rgba(2,12,4,0.55)',display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
               <div style={{padding:'0.45rem 1.1rem',background:'rgba(70,50,5,0.9)',border:'1px solid var(--amber)',fontFamily:'Share Tech Mono',fontSize:'clamp(0.6rem,1.8vw,0.8rem)',color:'var(--amber)',letterSpacing:'0.12em',animation:'aiPulse 0.8s ease-in-out infinite'}}>◌ COMPUTER TARGETING{attackFx?.countdown != null ? ` — ${attackFx.countdown}s` : '…'}</div>
@@ -1414,7 +1414,7 @@ export default function GameScreen({ user, config, p1Grid, p2Grid, onBack }) {
         <div style={{width:'clamp(148px,23vw,218px)',background:'var(--bg-panel)',borderLeft:'var(--border-panel)',display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0}}>
           <div style={{display:'flex',borderBottom:'var(--border-panel)',flexShrink:0}}>
             {[{id:'attack',label:'🎯 FIRE'},{id:'fleet',label:'🚢 FLEET'},{id:'log',label:'📋 LOG'}].map(({id,label})=>(
-              <button key={id} onClick={()=>setTab(id)}
+              <button key={id} onClick={()=>{ play('battleClick'); setTab(id); }}
                 style={{flex:1,padding:'clamp(0.26rem,0.85vw,0.36rem)',background:activeTab===id?'rgba(90,173,94,0.12)':'transparent',border:'none',borderBottom:`2px solid ${activeTab===id?'var(--green-bright)':'transparent'}`,color:activeTab===id?'var(--green-accent)':'var(--green-dim)',fontSize:'clamp(0.4rem,1.25vw,0.52rem)',fontFamily:'Share Tech Mono',cursor:'pointer',transition:'all 0.15s',letterSpacing:'0.05em'}}>
                 {label}
               </button>

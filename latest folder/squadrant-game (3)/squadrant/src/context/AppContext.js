@@ -408,6 +408,7 @@ function createAudioEngine() {
   const SAMPLE_SRC = {
     click: '/sounds/click.wav',
     fire:  '/sounds/air-whoosh.wav',
+    battleClick: '/sounds/battle-click.wav',
   };
   const sampleData = {};     // fetched ArrayBuffers
   const sampleBuffers = {};  // decoded AudioBuffers
@@ -472,6 +473,7 @@ function createAudioEngine() {
 
   const sounds = {
     click:   () => { if (!playSample('click')) tone(880,'square',0.08,0.3); },
+    battleClick: () => { if (!playSample('battleClick')) { tone(220,'square',0.05,0.22); setTimeout(()=>tone(660,'sine',0.035,0.1),14); noise(0.02,0.1); } },
     select:  () => { if (!playSample('click')) { tone(660,'square',0.06,0.2); tone(880,'square',0.06,0.2); } },
     fire:    () => { if (!playSample('fire')) { sweep(280,900,0.3,0.3,'sawtooth'); noise(0.22,0.4); } },
     hit:     () => { noise(0.3,0.8); tone(180,'sawtooth',0.4,0.5); },
